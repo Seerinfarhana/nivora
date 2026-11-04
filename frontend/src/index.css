@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+
+  /* Mild palette: cool mist surfaces, slate-teal brand, pastel semantic tints */
+  --color-mist: #f2f5f6;
+  --color-ink: #1e2b33;
+  --color-muted: #667a85;
+  --color-line: #e2e9ec;
+
+  --color-brand-50: #eaf3f4;
+  --color-brand-100: #d5e7e9;
+  --color-brand-200: #b0d3d7;
+  --color-brand-400: #6aa6ad;
+  --color-brand-500: #3f7f86;
+  --color-brand-600: #326a71;
+  --color-brand-700: #285459;
+
+  --color-lav: #e9e7f5;
+  --color-lav-ink: #5b54a0;
+  --color-mint: #dff0e8;
+  --color-mint-ink: #2f7a5a;
+  --color-sand: #f4ebd6;
+  --color-sand-ink: #8a6a1f;
+  --color-rose: #f6e1de;
+  --color-rose-ink: #b0524a;
+  --color-sky: #e0edf7;
+  --color-sky-ink: #3a6c99;
+}
+
+@layer base {
+  html { color-scheme: light; }
+  body {
+    background: var(--color-mist);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0.015em; }
+  :focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; border-radius: 8px; }
+  ::selection { background: var(--color-brand-200); }
+}
+
+@layer components {
+  .card {
+    background: #fff;
+    border: 1px solid var(--color-line);
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(30, 43, 51, 0.04), 0 10px 28px -16px rgba(30, 43, 51, 0.12);
+  }
+  .field {
+    width: 100%;
+    background: #fff;
+    border: 1px solid var(--color-line);
+    border-radius: 0.75rem;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.925rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field:focus { outline: none; border-color: var(--color-brand-400); box-shadow: 0 0 0 4px var(--color-brand-50); }
+}
+
+/* Lenis recommended CSS */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+.scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: var(--color-brand-100); border-radius: 8px; }
