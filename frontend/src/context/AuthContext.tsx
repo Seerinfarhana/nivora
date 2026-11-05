@@ -4,7 +4,7 @@ import { api, getToken, setToken } from "../lib/api";
 export type Role = "customer" | "admin";
 export interface User { id: number; name: string; email: string; role: Role; language?: string; }
 
-interface RegisterData { name: string; email: string; password: string; phone: string; language: string; }
+interface RegisterData { name: string; email: string; password: string; pin: string; phone: string; language: string; }
 
 interface AuthCtx {
   user: User | null;

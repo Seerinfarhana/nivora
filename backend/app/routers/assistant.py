@@ -99,7 +99,7 @@ def confirm(body: ConfirmIn, s: Session = Depends(get_session), u: User = Depend
     r = tools.confirm_transfer(s, u, body.pin)
     if r["status"] == "done":
         return {"status": "done", "reply": f"Done. {inr(r['amount'])} sent to {r['to']}. Reference {r['ref']}. New balance {inr(r['balance'])}."}
-    return {"status": "rejected", "reply": r["reason"]}
+    return {"status": "locked" if r["status"] == "locked" else "rejected", "reply": r["reason"]}
 
 
 @router.post("/cancel")

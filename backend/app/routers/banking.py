@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -15,6 +15,13 @@ class GoalIn(BaseModel):
     target: float
     saved: float = 0
     due: str = ""
+
+
+class GoalPatch(BaseModel):
+    name: str | None = None
+    target: float | None = None
+    saved: float | None = None
+    due: str | None = None
 
 
 class BenIn(BaseModel):
@@ -54,6 +61,39 @@ def add_goal(body: GoalIn, s: Session = Depends(get_session), u: User = Depends(
     s.commit()
     s.refresh(g)
     return g
+
+
+@router.patch("/goals/{goal_id}")
+def patch_goal(goal_id: int, body: GoalPatch, s: Session = Depends(get_session), u: User = Depends(current_user)):
+    g = s.get(Goal, goal_id)
+    if not g or g.user_id != u.id:
+        raise HTTPException(404, "Goal not found")
+    for k, v in body.model_dump(exclude_none=True).items():
+        setattr(g, k, max(v, 0) if k in ("target", "saved") else v)
+    s.add(g)
+    s.commit()
+    s.refresh(g)
+    return g
+
+
+@router.delete("/goals/{goal_id}")
+def delete_goal(goal_id: int, s: Session = Depends(get_session), u: User = Depends(current_user)):
+    g = s.get(Goal, goal_id)
+    if not g or g.user_id != u.id:
+        raise HTTPException(404, "Goal not found")
+    s.delete(g)
+    s.commit()
+    return {"ok": True}
+
+
+@router.get("/weekly")
+def weekly(s: Session = Depends(get_session), u: User = Depends(current_user)):
+    return tools.weekly_summary(s, u)
+
+
+@router.get("/insights")
+def insights(s: Session = Depends(get_session), u: User = Depends(current_user)):
+    return tools.insights(s, u)
 
 
 @router.get("/beneficiaries")

@@ -59,7 +59,7 @@ export async function askAssistant(message: string, lang: Lang): Promise<Msg> {
 }
 
 export const confirmTransfer = (pin: string) =>
-  api<{ status: "done" | "rejected"; reply: string }>("/api/assistant/confirm", { method: "POST", body: JSON.stringify({ pin }) });
+  api<{ status: "done" | "rejected" | "locked"; reply: string }>("/api/assistant/confirm", { method: "POST", body: JSON.stringify({ pin }) });
 
 export const cancelTransfer = () =>
   api<{ reply: string }>("/api/assistant/cancel", { method: "POST" });

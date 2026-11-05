@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { BadgeCheck, Smartphone, Monitor } from "lucide-react";
 import { usePageEnter } from "../lib/usePageEnter";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../lib/api";
 import { devices } from "../lib/mockData";
 import { inr } from "../lib/utils";
 import { Badge, Button, Field, PageHeader, Tabs, Toggle } from "../components/ui";
@@ -28,11 +29,14 @@ export default function Settings() {
   useEffect(() => { document.documentElement.style.fontSize = `${size}px`; return () => { document.documentElement.style.fontSize = ""; }; }, [size]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 2200); return () => clearTimeout(t); }, [toast]);
 
-  const savePin = (e: FormEvent) => {
+  const savePin = async (e: FormEvent) => {
     e.preventDefault();
     if (pin.next.length < 4) return setPinErr("Your new PIN needs at least 4 digits.");
     if (pin.next !== pin.again) return setPinErr("The new PIN and confirmation do not match.");
-    setPinErr(""); setPin({ cur: "", next: "", again: "" }); setToast("PIN updated");
+    try {
+      await api("/api/auth/change-pin", { method: "POST", body: JSON.stringify({ current_pin: pin.cur, new_pin: pin.next }) });
+      setPinErr(""); setPin({ cur: "", next: "", again: "" }); setToast("PIN updated");
+    } catch (err) { setPinErr(err instanceof Error ? err.message : "Could not update the PIN."); }
   };
   const P = (k: keyof typeof pref) => (v: boolean) => setPref(s => ({ ...s, [k]: v }));
 

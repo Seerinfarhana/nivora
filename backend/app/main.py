@@ -6,13 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import FRONTEND_ORIGINS
 from .db import init_db
 from .routers import admin, assistant, auth, banking
-from .seed import seed_if_empty
+from .seed import backfill_starter_data, seed_if_empty
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     seed_if_empty()
+    backfill_starter_data()
     yield
 
 

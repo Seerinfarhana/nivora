@@ -3,7 +3,8 @@ import { ArrowUpRight, Send, Receipt, CreditCard, Sparkles, Landmark, PiggyBank,
 import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { usePageEnter } from "../lib/usePageEnter";
 import { useAuth } from "../context/AuthContext";
-import { accounts, transactions, spendByCategory, monthly, goals } from "../lib/mockData";
+import { useApi } from "../lib/useApi";
+import Status from "../components/Status";
 import { inr } from "../lib/utils";
 import { palette, tooltipStyle } from "../lib/chart";
 import CountUp from "../components/reactbits/CountUp";
@@ -16,9 +17,18 @@ const quick = [
   { label: "Block card", icon: CreditCard, prompt: "Block my debit card", tone: "rose" as const },
   { label: "Ask NIVORA", icon: Sparkles, prompt: "What is my balance?", tone: "lav" as const },
 ];
-const accIcon = { savings: Wallet, rd: PiggyBank, fd: Landmark } as const;
+const accIcon = { Savings: Wallet, Current: PiggyBank, "Fixed deposit": Landmark } as const;
+const tones = ["brand", "sky", "lav"] as const;
 
-export default function Dashboard() {
+interface Props {
+  accounts: { id: string; name: string; mask: string; balance: number; type: string }[];
+  transactions: { id: number; merchant: string; category: string; amount: number; date: string }[];
+  spendByCategory: { label: string; value: number }[];
+  monthly: { m: string; income: number; spend: number }[];
+  goals: { id: number; name: string; target: number; saved: number; tone: (typeof tones)[number] }[];
+}
+
+function DashboardView({ accounts, transactions, spendByCategory, monthly, goals }: Props) {
   const ref = usePageEnter();
   const { user } = useAuth();
   const go = useNavigate();
@@ -26,6 +36,7 @@ export default function Dashboard() {
   const hour = new Date().getHours();
   const hello = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const spendTotal = spendByCategory.reduce((s, c) => s + c.value, 0);
+  const last = monthly[monthly.length - 1];
 
   return (
     <div ref={ref}>
@@ -34,9 +45,9 @@ export default function Dashboard() {
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Balance hero */}
         <div data-enter className="card relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-100 via-brand-50 to-lav p-6 sm:p-8 lg:col-span-2">
-          <p className="text-sm font-medium text-brand-700">Total balance across 3 accounts</p>
+          <p className="text-sm font-medium text-brand-700">Total balance across {accounts.length} account{accounts.length === 1 ? "" : "s"}</p>
           <p className="font-display mt-2 text-4xl font-semibold sm:text-5xl"><CountUp to={total} prefix="₹" decimals={2} /></p>
-          <div className="mt-3 flex items-center gap-2 text-sm text-brand-700"><Badge tone="mint"><TrendingUp className="h-3 w-3" /> +₹3,980</Badge> since last month</div>
+          {last && <div className="mt-3 flex items-center gap-2 text-sm text-brand-700"><Badge tone="mint"><TrendingUp className="h-3 w-3" /> {last.income - last.spend >= 0 ? "+" : "-"}{inr(last.income - last.spend)}</Badge> saved in {last.m}</div>}
           <div className="mt-4 h-28 -mx-2">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={monthly.map(m => ({ ...m, saved: m.income - m.spend }))}>
@@ -68,7 +79,7 @@ export default function Dashboard() {
               <li key={t.id} className="flex items-center justify-between gap-3 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-mist text-sm font-semibold text-brand-700">{t.merchant[0]}</div>
-                  <div className="min-w-0"><p className="truncate text-sm font-semibold">{t.merchant}</p><p className="text-xs text-muted">{t.date} · {t.category} · {t.channel}</p></div>
+                  <div className="min-w-0"><p className="truncate text-sm font-semibold">{t.merchant}</p><p className="text-xs text-muted">{t.date} · {t.category}</p></div>
                 </div>
                 <p className={`shrink-0 text-sm font-semibold ${t.amount > 0 ? "text-mint-ink" : ""}`}>{t.amount > 0 ? "+" : "-"}{inr(t.amount)}</p>
               </li>
@@ -78,12 +89,12 @@ export default function Dashboard() {
 
         <div className="space-y-5">
           <div data-enter className="card p-5">
-            <h2 className="text-lg font-semibold">Spent this month</h2>
+            <h2 className="text-lg font-semibold">Spent in 30 days</h2>
             <div className="relative mx-auto h-44 w-44">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart><Pie data={spendByCategory} dataKey="value" nameKey="label" innerRadius={56} outerRadius={80} paddingAngle={3} stroke="none">{spendByCategory.map((_, i) => <Cell key={i} fill={palette[i % palette.length]} />)}</Pie><Tooltip contentStyle={tooltipStyle} formatter={(v) => inr(Number(v))} /></PieChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><p className="font-display text-xl font-semibold">{inr(spendTotal)}</p><p className="text-xs text-muted">this month</p></div></div>
+              <div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><p className="font-display text-xl font-semibold">{inr(spendTotal)}</p><p className="text-xs text-muted">last 30 days</p></div></div>
             </div>
           </div>
           <div data-enter className="card p-5">
@@ -96,7 +107,7 @@ export default function Dashboard() {
       </div>
 
       <div data-enter className="mt-5 grid gap-3 sm:grid-cols-3">
-        {accounts.map(a => { const I = accIcon[a.type as keyof typeof accIcon]; return (
+        {accounts.map(a => { const I = accIcon[a.type as keyof typeof accIcon] ?? Wallet; return (
           <SpotlightCard key={a.id} className="p-5">
             <div className="flex items-center gap-3"><IconTile tone="brand"><I className="h-5 w-5" /></IconTile><div><p className="text-sm font-semibold">{a.name}</p><p className="text-xs text-muted">{a.mask}</p></div></div>
             <p className="font-display mt-4 text-2xl font-semibold">{inr(a.balance, 2)}</p>
@@ -105,3 +116,24 @@ export default function Dashboard() {
     </div>
   );
 }
+
+export default function Dashboard() {
+  const bal = useApi<{ accounts: { type: string; number: string; balance: number }[] }>("/api/accounts");
+  const tx = useApi<{ id: number; name: string; category: string; amount: number; date: string }[]>("/api/transactions?limit=6");
+  const sp = useApi<{ categories: { name: string; value: number }[] }>("/api/spending?days=30");
+  const mo = useApi<{ m: string; income: number; spend: number }[]>("/api/monthly");
+  const gl = useApi<{ id: number; name: string; target: number; saved: number }[]>("/api/goals");
+
+  if (!bal.data || !tx.data || !sp.data || !mo.data || !gl.data) {
+    const all = [bal, tx, sp, mo, gl];
+    return <Status loading={all.some(x => x.loading)} error={all.find(x => x.error)?.error ?? ""} />;
+  }
+  return <DashboardView
+    accounts={bal.data.accounts.map(a => ({ id: a.type, name: a.type, mask: a.number, balance: a.balance, type: a.type }))}
+    transactions={tx.data.map(t => ({ id: t.id, merchant: t.name, category: t.category, amount: t.amount, date: t.date }))}
+    spendByCategory={sp.data.categories.map(c => ({ label: c.name, value: c.value }))}
+    monthly={mo.data}
+    goals={gl.data.map((g, i) => ({ ...g, tone: tones[i % 3] }))}
+  />;
+}
+

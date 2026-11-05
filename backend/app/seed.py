@@ -64,3 +64,45 @@ def seed_if_empty():
             s.add(AuditLog(user_id=demo.id, intent=intent, action=action, status=status,
                            created_at=now - timedelta(minutes=7 * (i + 1))))
         s.commit()
+
+
+STARTER_PAYEES = [("Ravi Kumar", "XXXX 2210"), ("Priya Sharma", "XXXX 7781"), ("Mom", "XXXX 3345")]
+
+
+def starter_data(s: Session, u: User):
+    """Gives a new customer a Savings balance, sample payees, 90 days of transactions and one goal,
+    so every page and the assistant have something real to work with."""
+    rnd = random.Random(u.id * 101)
+    savings = s.exec(select(Account).where(Account.user_id == u.id, Account.type == "Savings")).first()
+    if not savings:
+        savings = Account(user_id=u.id, type="Savings", number=f"•••• {1000 + u.id * 37}", balance=0)
+        s.add(savings)
+        s.commit()
+        s.refresh(savings)
+    if savings.balance == 0:
+        savings.balance = 48500.0
+        s.add(savings)
+    now = datetime.now()
+    for d in range(90):
+        day = now - timedelta(days=d)
+        if day.day == 1:
+            s.add(Transaction(user_id=u.id, account_id=savings.id, name="Salary", category="Income", amount=42000, created_at=day))
+        if rnd.random() < 0.5:
+            cat = rnd.choice(list(SPEND))
+            s.add(Transaction(user_id=u.id, account_id=savings.id, name=rnd.choice(SPEND[cat]), category=cat,
+                              amount=-float(rnd.randint(12, 200) * 10), created_at=day))
+    for name, acc in STARTER_PAYEES:
+        s.add(Beneficiary(user_id=u.id, name=name, account_no=acc))
+    s.add(Goal(user_id=u.id, name="Emergency fund", target=50000, saved=5000, due="Dec 2027"))
+    s.commit()
+
+
+def backfill_starter_data():
+    """Customers created before starter data existed (no transactions and no payees) get it once."""
+    with Session(engine) as s:
+        for u in s.exec(select(User).where(User.role == "customer")).all():
+            has_tx = s.exec(select(Transaction).where(Transaction.user_id == u.id)).first()
+            has_ben = s.exec(select(Beneficiary).where(Beneficiary.user_id == u.id)).first()
+            if not has_tx and not has_ben:
+                starter_data(s, u)
+

@@ -57,3 +57,11 @@ class AuditLog(SQLModel, table=True):
     intent: str
     action: str
     status: str  # Approved | Blocked | Review
+
+
+class PinGuard(SQLModel, table=True):
+    """Counts wrong PIN attempts and holds the lock time (one row per user)."""
+    user_id: int = Field(primary_key=True, foreign_key="user.id")
+    failures: int = 0
+    locked_until: Optional[NaiveDatetime] = None
+

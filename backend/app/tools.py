@@ -1,15 +1,18 @@
 """Secure banking tools. The assistant (rule-based now, an LLM later) can ONLY act through these.
 Every function is scoped to the logged-in user and writes to the audit log where it matters."""
+import math
 import random
 from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
 from .config import DAILY_TRANSFER_LIMIT
-from .models import Account, AuditLog, Beneficiary, Transaction, User
+from .models import Account, AuditLog, Beneficiary, PinGuard, Transaction, User
 from .security import check_pw
 
 PENDING: dict[int, dict] = {}  # user_id -> transfer waiting for PIN confirmation
+MAX_PIN_TRIES = 3
+LOCK_MINUTES = 15
 
 
 def inr(n: float) -> str:
@@ -85,7 +88,45 @@ def find_beneficiary(s: Session, u: User, text: str):
     return None
 
 
+def _lock_minutes_left(s: Session, u: User) -> int:
+    g = s.get(PinGuard, u.id)
+    if g and g.locked_until and g.locked_until > datetime.now():
+        return max(1, math.ceil((g.locked_until - datetime.now()).total_seconds() / 60))
+    return 0
+
+
+def _mins(n: int) -> str:
+    return f"{n} minute{'s' if n != 1 else ''}"
+
+
+def verify_pin(s: Session, u: User, pin: str):
+    """Checks a PIN and enforces the lockout: 3 wrong tries pause PIN actions for 15 minutes."""
+    left = _lock_minutes_left(s, u)
+    if left:
+        return {"ok": False, "locked": True, "reason": f"Too many wrong PIN attempts. Try again in {_mins(left)}."}
+    g = s.get(PinGuard, u.id) or PinGuard(user_id=u.id)
+    if check_pw(pin, u.pin_hash):
+        g.failures, g.locked_until = 0, None
+        s.add(g)
+        s.commit()
+        return {"ok": True, "locked": False}
+    g.failures += 1
+    if g.failures >= MAX_PIN_TRIES:
+        g.failures, g.locked_until = 0, datetime.now() + timedelta(minutes=LOCK_MINUTES)
+        s.add(g)
+        s.commit()
+        return {"ok": False, "locked": True,
+                "reason": f"Wrong PIN {MAX_PIN_TRIES} times. For your safety, PIN actions are paused for {_mins(LOCK_MINUTES)}."}
+    s.add(g)
+    s.commit()
+    n = MAX_PIN_TRIES - g.failures
+    return {"ok": False, "locked": False, "reason": f"That PIN is incorrect. {n} {'try' if n == 1 else 'tries'} left."}
+
+
 def prepare_transfer(s: Session, u: User, ben: Beneficiary, amount: float):
+    left = _lock_minutes_left(s, u)
+    if left:
+        return {"status": "rejected", "reason": f"Transfers are paused after too many wrong PINs. Try again in {_mins(left)}."}
     if amount <= 0:
         return {"status": "rejected", "reason": "The amount must be more than zero."}
     acc = s.exec(select(Account).where(Account.user_id == u.id, Account.type == "Savings")).first()
@@ -107,9 +148,14 @@ def confirm_transfer(s: Session, u: User, pin: str):
     p = PENDING.get(u.id)
     if not p:
         return {"status": "rejected", "reason": "There is no transfer waiting for confirmation."}
-    if not check_pw(pin, u.pin_hash):
+    v = verify_pin(s, u, pin)
+    if not v["ok"]:
+        if v["locked"]:
+            PENDING.pop(u.id, None)
+            log(s, u, "Transfer " + inr(p["amount"]), "PIN locked after wrong attempts", "Blocked")
+            return {"status": "locked", "reason": v["reason"]}
         log(s, u, "Transfer " + inr(p["amount"]), "Wrong PIN", "Blocked")
-        return {"status": "rejected", "reason": "That PIN is incorrect."}
+        return {"status": "rejected", "reason": v["reason"]}
     acc = s.exec(select(Account).where(Account.user_id == u.id, Account.type == "Savings")).first()
     if not acc or p["amount"] > acc.balance:
         PENDING.pop(u.id, None)
@@ -157,3 +203,51 @@ def faq_search(query: str):
     q = query.lower()
     scored = sorted(((sum(k in q for k in f["keywords"]), f) for f in FAQ), key=lambda x: -x[0])
     return scored[0][1] if scored and scored[0][0] > 0 else None
+
+
+def weekly_summary(s: Session, u: User, weeks: int = 4):
+    now = datetime.now()
+    rows = s.exec(select(Transaction).where(
+        Transaction.user_id == u.id, Transaction.amount < 0,
+        Transaction.created_at >= now - timedelta(days=7 * weeks))).all()
+    out = []
+    for i in range(weeks):
+        end = now - timedelta(days=7 * i)
+        start = end - timedelta(days=7)
+        out.append({"w": f"Wk {weeks - i}",
+                    "spend": round(sum(-t.amount for t in rows if start < t.created_at <= end), 2)})
+    return list(reversed(out))
+
+
+def insights(s: Session, u: User):
+    """Plain-language observations computed from the user's own transactions."""
+    now = datetime.now()
+    out = []
+    cur = spending_summary(s, u, 30)
+    if cur["categories"]:
+        top = cur["categories"][0]
+        pct = round(top["value"] / cur["total"] * 100)
+        out.append({"tone": "sand", "title": f"{top['name']} is your biggest expense",
+                    "body": f"You spent {inr(top['value'])} on {top['name'].lower()} in the last 30 days, {pct}% of your spending."})
+    prev_rows = s.exec(select(Transaction).where(
+        Transaction.user_id == u.id, Transaction.amount < 0,
+        Transaction.created_at >= now - timedelta(days=60), Transaction.created_at < now - timedelta(days=30))).all()
+    prev_total = sum(-t.amount for t in prev_rows)
+    if prev_total > 0 and cur["total"] > 0:
+        chg = round((cur["total"] - prev_total) / prev_total * 100)
+        out.append({"tone": "sky", "title": f"Spending is {'up' if chg >= 0 else 'down'} {abs(chg)}% on the previous 30 days",
+                    "body": f"{inr(cur['total'])} in the last 30 days, against {inr(prev_total)} in the 30 days before."})
+    for m in reversed(monthly_summary(s, u)):
+        if m["income"] > 0:
+            rate = round((m["income"] - m["spend"]) / m["income"] * 100)
+            tip = "That is above the common 30% target." if rate >= 30 else "A common target is 30%. Moving a little into a goal would help."
+            out.append({"tone": "mint", "title": f"You saved {rate}% of your income in {m['m']}", "body": tip})
+            break
+    big = s.exec(select(Transaction).where(
+        Transaction.user_id == u.id, Transaction.amount < 0, Transaction.created_at >= now - timedelta(days=30)
+    ).order_by(Transaction.amount)).first()
+    if big:
+        out.append({"tone": "lav", "title": f"Largest expense: {big.name}",
+                    "body": f"{inr(abs(big.amount))} on {big.created_at.strftime('%d %b')} under {big.category.lower()}."})
+    return out
+

@@ -1,30 +1,51 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
-import { Plus, Target } from "lucide-react";
+import { Plus, Target, Trash2 } from "lucide-react";
 import { usePageEnter } from "../lib/usePageEnter";
-import { goals as seed } from "../lib/mockData";
+import { api } from "../lib/api";
+import { useApi } from "../lib/useApi";
+import Status from "../components/Status";
 import { inr } from "../lib/utils";
 import { axis, tooltipStyle } from "../lib/chart";
 import { Badge, Button, Field, IconTile, PageHeader, Progress } from "../components/ui";
 
-type Goal = (typeof seed)[number];
-const tones: Goal["tone"][] = ["brand", "sky", "lav"];
+const tones = ["brand", "sky", "lav"] as const;
+interface Raw { id: number; name: string; target: number; saved: number; due: string }
+interface Goal extends Raw { tone: (typeof tones)[number] }
 
-export default function Goals() {
+function GoalsView({ initial }: { initial: Raw[] }) {
   const ref = usePageEnter();
-  const [goals, setGoals] = useState<Goal[]>(seed);
+  const [goals, setGoals] = useState<Goal[]>(() => initial.map((g, i) => ({ ...g, tone: tones[i % 3] })));
+  const [err, setErr] = useState("");
   const [form, setForm] = useState({ name: "", target: "", months: "12" });
   const [plan, setPlan] = useState({ target: 100000, current: 15000, months: 10 });
 
-  const add = (e: FormEvent) => {
+  const fail = (e: unknown) => setErr(e instanceof Error ? e.message : "Something went wrong.");
+
+  const add = async (e: FormEvent) => {
     e.preventDefault();
     const target = Number(form.target);
     if (!form.name.trim() || !target) return;
     const due = new Date(); due.setMonth(due.getMonth() + Number(form.months));
-    setGoals(g => [...g, { id: Date.now(), name: form.name.trim(), target, saved: 0, due: due.toLocaleDateString("en-IN", { month: "short", year: "numeric" }), tone: tones[g.length % 3] }]);
-    setForm({ name: "", target: "", months: "12" });
+    try {
+      const g = await api<Raw>("/api/goals", { method: "POST", body: JSON.stringify({ name: form.name.trim(), target, saved: 0, due: due.toLocaleDateString("en-IN", { month: "short", year: "numeric" }) }) });
+      setGoals(list => [...list, { ...g, tone: tones[list.length % 3] }]);
+      setForm({ name: "", target: "", months: "12" }); setErr("");
+    } catch (e) { fail(e); }
   };
-  const topUp = (id: number) => setGoals(g => g.map(x => x.id === id ? { ...x, saved: Math.min(x.target, x.saved + 1000) } : x));
+  const topUp = async (g: Goal) => {
+    const saved = Math.min(g.target, g.saved + 1000);
+    try {
+      await api(`/api/goals/${g.id}`, { method: "PATCH", body: JSON.stringify({ saved }) });
+      setGoals(list => list.map(x => x.id === g.id ? { ...x, saved } : x)); setErr("");
+    } catch (e) { fail(e); }
+  };
+  const remove = async (id: number) => {
+    try {
+      await api(`/api/goals/${id}`, { method: "DELETE" });
+      setGoals(list => list.filter(x => x.id !== id)); setErr("");
+    } catch (e) { fail(e); }
+  };
 
   const monthly = Math.max(0, Math.ceil((plan.target - plan.current) / plan.months));
   const proj = useMemo(() => Array.from({ length: plan.months + 1 }, (_, i) => ({ m: i, saved: Math.min(plan.target, plan.current + monthly * i) })), [plan, monthly]);
@@ -41,7 +62,7 @@ export default function Goals() {
                 <Badge tone={pct >= 100 ? "mint" : "neutral"}>{pct >= 100 ? "Reached" : `${Math.round(pct)}%`}</Badge>
               </div>
               <div className="mt-4"><Progress value={pct} tone={g.tone} /></div>
-              <div className="mt-3 flex items-center justify-between text-sm"><span><b>{inr(g.saved)}</b> <span className="text-muted">of {inr(g.target)}</span></span><Button size="sm" variant="soft" onClick={() => topUp(g.id)} disabled={pct >= 100}><Plus className="h-4 w-4" /> Add ₹1,000</Button></div>
+              <div className="mt-3 flex items-center justify-between text-sm"><span><b>{inr(g.saved)}</b> <span className="text-muted">of {inr(g.target)}</span></span><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => remove(g.id)} aria-label={`Remove ${g.name}`}><Trash2 className="h-4 w-4" /></Button><Button size="sm" variant="soft" onClick={() => topUp(g)} disabled={pct >= 100}><Plus className="h-4 w-4" /> Add ₹1,000</Button></div></div>
             </div>); })}
 
           <form data-enter onSubmit={add} className="card grid gap-3 p-5 sm:grid-cols-[1.4fr_1fr_.8fr_auto] sm:items-end">
@@ -50,6 +71,7 @@ export default function Goals() {
             <Field label="Months" inputMode="numeric" value={form.months} onChange={e => setForm({ ...form, months: e.target.value.replace(/\D/g, "") })} />
             <Button type="submit"><Plus className="h-4 w-4" /> Add goal</Button>
           </form>
+          {err && <p className="text-sm text-rose-ink" role="alert">{err}</p>}
         </div>
 
         <div data-enter className="card h-fit p-5">
@@ -68,3 +90,10 @@ export default function Goals() {
     </div>
   );
 }
+
+export default function Goals() {
+  const { data, error, loading } = useApi<Raw[]>("/api/goals");
+  if (!data) return <Status loading={loading} error={error} />;
+  return <GoalsView initial={data} />;
+}
+

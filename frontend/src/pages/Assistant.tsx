@@ -85,7 +85,9 @@ export default function Assistant() {
     try {
       if (status === "cancelled") { const r = await cancelTransfer(); mark("cancelled"); say(botMsg(r.reply)); return; }
       const r = await confirmTransfer(pin ?? "");
-      if (r.status === "done") mark("done");   // wrong PIN leaves the card open so the user can retry
+      if (r.status === "done") mark("done");
+      else if (r.status === "locked") mark("cancelled");   // too many wrong PINs: close the card
+      // a single wrong PIN leaves the card open so the user can retry
       say(botMsg(r.reply));
     } catch (e) { say(botMsg(e instanceof Error ? e.message : "Something went wrong. Please try again.")); }
   };

@@ -17,7 +17,7 @@ export default function Login() {
   const [mode, setMode] = useState<Mode>("signin");
   const [step, setStep] = useState<1 | 2>(1);
   const [err, setErr] = useState("");
-  const [f, setF] = useState({ name: "", email: "", phone: "", password: "", lang: "en", consent: false });
+  const [f, setF] = useState({ name: "", email: "", phone: "", password: "", pin: "", lang: "en", consent: false });
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string | boolean) => setF(p => ({ ...p, [k]: v }));
@@ -46,11 +46,12 @@ export default function Login() {
       if (!/\S+@\S+\.\S+/.test(f.email)) return setErr("Enter a valid email address.");
       if (!/^\d{10}$/.test(f.phone)) return setErr("Enter a 10-digit mobile number.");
       if (f.password.length < 8) return setErr("Password must be at least 8 characters.");
+      if (!/^\d{4,6}$/.test(f.pin) || new Set(f.pin).size === 1) return setErr("Choose a transaction PIN of 4 to 6 digits that is not all the same digit.");
       if (!f.consent) return setErr("Please accept the terms and privacy notice to continue.");
       setErr(""); return setStep(2);
     }
     if (!/^\d{6}$/.test(otp)) return setErr("Enter the 6-digit code we sent to your mobile.");
-    run(() => register({ name: f.name, email: f.email, password: f.password, phone: f.phone, language: f.lang }));
+    run(() => register({ name: f.name, email: f.email, password: f.password, pin: f.pin, phone: f.phone, language: f.lang }));
   };
 
   return (
@@ -104,6 +105,7 @@ export default function Login() {
               <Field label="Email" type="email" autoComplete="email" value={f.email} onChange={e => set("email", e.target.value)} />
               <Field label="Mobile number" inputMode="numeric" maxLength={10} value={f.phone} onChange={e => set("phone", e.target.value.replace(/\D/g, ""))} />
               <Field label="Password" type="password" autoComplete="new-password" value={f.password} onChange={e => set("password", e.target.value)} hint="Use 8 or more characters." />
+              <Field label="Transaction PIN" type="password" inputMode="numeric" maxLength={6} value={f.pin} onChange={e => set("pin", e.target.value.replace(/\D/g, ""))} hint="4 to 6 digits. You enter it to approve payments." />
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium">Preferred language</span>
                 <select className="field" value={f.lang} onChange={e => set("lang", e.target.value)}>

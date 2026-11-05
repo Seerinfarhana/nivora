@@ -1,24 +1,36 @@
 import { useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { usePageEnter } from "../lib/usePageEnter";
-import { insights, monthly, spendByCategory, weekly } from "../lib/mockData";
+import { useApi } from "../lib/useApi";
+import Status from "../components/Status";
 import { axis, palette, tooltipStyle } from "../lib/chart";
 import { inr } from "../lib/utils";
 import CountUp from "../components/reactbits/CountUp";
 import SpotlightCard from "../components/reactbits/SpotlightCard";
 import { Badge, PageHeader, Tabs } from "../components/ui";
 
-export default function Insights() {
+interface Props {
+  monthly: { m: string; income: number; spend: number }[];
+  spendByCategory: { label: string; value: number }[];
+  weekly: { w: string; spend: number }[];
+  insights: { tone: "sand" | "mint" | "sky" | "lav"; title: string; body: string }[];
+}
+
+function InsightsView({ monthly, spendByCategory, weekly, insights }: Props) {
   const ref = usePageEnter();
   const [range, setRange] = useState<"3M" | "6M">("6M");
   const data = range === "3M" ? monthly.slice(-3) : monthly;
   const cur = monthly[monthly.length - 1];
-  const rate = Math.round(((cur.income - cur.spend) / cur.income) * 100);
+  const prev = monthly[monthly.length - 2];
+  const rate = cur.income ? Math.round(((cur.income - cur.spend) / cur.income) * 100) : 0;
+  const spentNote = prev && prev.spend > 0
+    ? `${Math.abs(Math.round((cur.spend - prev.spend) / prev.spend * 100))}% ${cur.spend <= prev.spend ? "below" : "above"} ${prev.m}`
+    : "This month so far";
   const total = spendByCategory.reduce((s, c) => s + c.value, 0);
 
   const stats = [
-    { label: "Income", node: <CountUp to={cur.income} prefix="₹" />, tone: "mint" as const, note: "Salary credited on 3 Nov" },
-    { label: "Spent", node: <CountUp to={cur.spend} prefix="₹" />, tone: "sand" as const, note: "10% below October" },
+    { label: "Income", node: <CountUp to={cur.income} prefix="₹" />, tone: "mint" as const, note: "Credited this month" },
+    { label: "Spent", node: <CountUp to={cur.spend} prefix="₹" />, tone: "sand" as const, note: spentNote },
     { label: "Saved", node: <CountUp to={cur.income - cur.spend} prefix="₹" />, tone: "sky" as const, note: "After all bills" },
     { label: "Savings rate", node: <CountUp to={rate} suffix="%" />, tone: "lav" as const, note: "Target is 30%" },
   ];
@@ -61,11 +73,11 @@ export default function Insights() {
           <h2 className="text-lg font-semibold">By category</h2>
           <div className="mx-auto mt-2 h-44 w-44">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart><Pie data={spendByCategory} dataKey="value" nameKey="label" innerRadius={50} outerRadius={78} paddingAngle={3} stroke="none">{spendByCategory.map((_, i) => <Cell key={i} fill={palette[i]} />)}</Pie><Tooltip contentStyle={tooltipStyle} formatter={(v) => inr(Number(v))} /></PieChart>
+              <PieChart><Pie data={spendByCategory} dataKey="value" nameKey="label" innerRadius={50} outerRadius={78} paddingAngle={3} stroke="none">{spendByCategory.map((_, i) => <Cell key={i} fill={palette[i % palette.length]} />)}</Pie><Tooltip contentStyle={tooltipStyle} formatter={(v) => inr(Number(v))} /></PieChart>
             </ResponsiveContainer>
           </div>
           <ul className="mt-3 space-y-2 text-sm">
-            {spendByCategory.map((c, i) => <li key={c.label} className="flex items-center justify-between"><span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: palette[i] }} />{c.label}</span><span className="text-muted">{Math.round(c.value / total * 100)}%</span></li>)}
+            {spendByCategory.map((c, i) => <li key={c.label} className="flex items-center justify-between"><span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: palette[i % palette.length] }} />{c.label}</span><span className="text-muted">{Math.round(c.value / total * 100)}%</span></li>)}
           </ul>
         </div>
       </div>
@@ -88,3 +100,18 @@ export default function Insights() {
     </div>
   );
 }
+
+export default function Insights() {
+  const mo = useApi<Props["monthly"]>("/api/monthly");
+  const sp = useApi<{ categories: { name: string; value: number }[] }>("/api/spending?days=30");
+  const wk = useApi<Props["weekly"]>("/api/weekly");
+  const ins = useApi<Props["insights"]>("/api/insights");
+
+  if (!mo.data || !sp.data || !wk.data || !ins.data || mo.data.length === 0) {
+    const all = [mo, sp, wk, ins];
+    return <Status loading={all.some(x => x.loading)} error={all.find(x => x.error)?.error ?? ""} />;
+  }
+  return <InsightsView monthly={mo.data} weekly={wk.data} insights={ins.data}
+    spendByCategory={sp.data.categories.map(c => ({ label: c.name, value: c.value }))} />;
+}
+
