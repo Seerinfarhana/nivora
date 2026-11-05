@@ -1,5 +1,5 @@
-import { accounts, spendByCategory } from "./mockData";
-import { timeNow } from "./utils";
+import { api } from "./api";
+import { inr, timeNow } from "./utils";
 
 export type Lang = "en" | "hi" | "ta";
 
@@ -44,46 +44,24 @@ let n = 0;
 const mk = (role: Msg["role"], text: string, card?: Card): Msg => ({ id: `m${Date.now()}-${n++}`, role, text, card, time: timeNow() });
 export const userMsg = (text: string) => mk("user", text);
 
-/**
- * Demo brain. To go live, replace this with:
- *   const res = await fetch("/api/assistant/chat", { method: "POST", body: JSON.stringify({ message, lang }) });
- * The backend LLM should answer ONLY from secure tool results (get_balance, spending_summary, transfer_money ...).
- */
-export function respond(input: string, lang: Lang): Msg {
-  const q = input.toLowerCase();
-  const L = t[lang];
+export const botMsg = (text: string) => mk("bot", text);
 
-  const transfer = q.match(/(?:send|transfer|pay)\s+(?:₹|rs\.?\s*)?(\d[\d,]*)\s*(?:to|for)?\s*([a-z]+)/i);
-  if (transfer) {
-    const amount = Number(transfer[1].replace(/,/g, ""));
-    const payee = transfer[2][0].toUpperCase() + transfer[2].slice(1);
-    return mk("bot", `I can send this for you. Please check the details and confirm. Nothing moves until you do.`, {
-      type: "confirm", kind: "transfer", status: "pending",
-      title: `Send ₹${amount.toLocaleString("en-IN")} to ${payee}`,
-      detail: "From Savings •••• 4821 via UPI. Payee is saved in your beneficiaries.",
-    });
-  }
-  if (/block|lost|stolen|कार्ड|கார்டு/.test(q) && /card|कार्ड|கார்டு/.test(q)) {
-    return mk("bot", "I can block your debit card right now. You can unblock it later from Profile > Security.", {
-      type: "confirm", kind: "block", status: "pending", title: "Block debit card •••• 5532", detail: "Blocks all card payments and ATM withdrawals immediately.",
-    });
-  }
-  if (/balance|how much (money|do i have)|बैलेंस|शेष|இருப்பு|பேலன்ஸ்/.test(q)) {
-    return mk("bot", L.balance, { type: "balance", rows: accounts.map(a => ({ name: a.name, mask: a.mask, balance: a.balance })) });
-  }
-  if (/spen[dt]|expense|food|खर्च|செலவு/.test(q)) {
-    return mk("bot", L.spend, { type: "spend", total: spendByCategory.reduce((s, c) => s + c.value, 0), rows: spendByCategory.slice(0, 5) });
-  }
-  if (/loan|eligib|ऋण|लोन|கடன்/.test(q)) {
-    return mk("bot", "Based on your steady salary and clean repayment record, you are likely to qualify for a personal loan of up to ₹2,50,000. This is an estimate, not an offer. The final decision follows a credit check.", {
-      type: "links", rows: [{ label: "See loan options", to: "/recommendations" }, { label: "Read: what decides eligibility", to: "/knowledge" }],
-    });
-  }
-  if (/goal|saving|save|बचत|சேமிப்பு/.test(q)) {
-    return mk("bot", "You have 3 active goals. Your emergency fund is 65% complete.", { type: "links", rows: [{ label: "Open savings goals", to: "/goals" }] });
-  }
-  if (/^(hi|hello|hey|namaste|vanakkam|नमस्ते|வணக்கம்)/.test(q)) return mk("bot", L.hello);
-  return mk("bot", L.fallback);
+interface ChatReply { reply: string; needs_confirmation: { to: string; amount: number } | null; }
+
+export async function askAssistant(message: string, lang: Lang): Promise<Msg> {
+  const r = await api<ChatReply>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ message, language: lang }) });
+  const c = r.needs_confirmation;
+  return mk("bot", r.reply, c ? {
+    type: "confirm", kind: "transfer", status: "pending",
+    title: `Send ${inr(c.amount)} to ${c.to}`,
+    detail: "From your Savings account. Enter your PIN to approve.",
+  } : undefined);
 }
+
+export const confirmTransfer = (pin: string) =>
+  api<{ status: "done" | "rejected"; reply: string }>("/api/assistant/confirm", { method: "POST", body: JSON.stringify({ pin }) });
+
+export const cancelTransfer = () =>
+  api<{ reply: string }>("/api/assistant/cancel", { method: "POST" });
 
 export const greeting = (lang: Lang) => mk("bot", t[lang].hello);

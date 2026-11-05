@@ -6,31 +6,37 @@ import SplitText from "../components/reactbits/SplitText";
 import BlurText from "../components/reactbits/BlurText";
 import SoftBlobs from "../components/reactbits/SoftBlobs";
 import { Button, Field } from "../components/ui";
-import { useAuth } from "../context/AuthContext";
+import { useAuth, User } from "../context/AuthContext";
 import { cn } from "../lib/utils";
 
 type Mode = "signin" | "register";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const go = useNavigate();
   const [mode, setMode] = useState<Mode>("signin");
   const [step, setStep] = useState<1 | 2>(1);
   const [err, setErr] = useState("");
   const [f, setF] = useState({ name: "", email: "", phone: "", password: "", lang: "en", consent: false });
   const [otp, setOtp] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = (k: string, v: string | boolean) => setF(p => ({ ...p, [k]: v }));
 
-  const finish = (email: string, name?: string) => {
-    login(email, name);
-    go(email.toLowerCase().startsWith("admin") ? "/admin" : "/dashboard");
+  const run = async (fn: () => Promise<User>) => {
+    setBusy(true); setErr("");
+    try {
+      const u = await fn();
+      go(u.role === "admin" ? "/admin" : "/dashboard");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong.");
+    } finally { setBusy(false); }
   };
 
   const submitSignin = (e: FormEvent) => {
     e.preventDefault();
     if (!/\S+@\S+\.\S+/.test(f.email)) return setErr("Enter a valid email address.");
     if (f.password.length < 6) return setErr("Password must be at least 6 characters.");
-    setErr(""); finish(f.email);
+    run(() => login(f.email, f.password));
   };
 
   const submitRegister = (e: FormEvent) => {
@@ -44,7 +50,7 @@ export default function Login() {
       setErr(""); return setStep(2);
     }
     if (!/^\d{6}$/.test(otp)) return setErr("Enter the 6-digit code we sent to your mobile.");
-    setErr(""); finish(f.email, f.name);
+    run(() => register({ name: f.name, email: f.email, password: f.password, phone: f.phone, language: f.lang }));
   };
 
   return (
@@ -116,7 +122,7 @@ export default function Login() {
 
             {err && <p role="alert" className="rounded-xl bg-rose px-3 py-2 text-sm text-rose-ink">{err}</p>}
 
-            <Button type="submit" className="w-full py-3">
+            <Button type="submit" className="w-full py-3" disabled={busy}>
               {mode === "signin" ? "Sign in" : step === 1 ? "Send verification code" : "Create my account"}
             </Button>
           </form>
@@ -125,8 +131,8 @@ export default function Login() {
             <div className="mt-6 rounded-2xl border border-dashed border-brand-200 bg-white/70 p-4">
               <p className="mb-3 text-xs font-semibold text-muted">Demo access for judges</p>
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="soft" size="sm" onClick={() => finish("demo@nivora.app")}>Customer demo</Button>
-                <Button variant="soft" size="sm" onClick={() => finish("admin@nivora.app")}>Admin demo</Button>
+                <Button variant="soft" size="sm" disabled={busy} onClick={() => run(() => login("demo@nivora.in", "demo1234"))}>Customer demo</Button>
+                <Button variant="soft" size="sm" disabled={busy} onClick={() => run(() => login("admin@nivora.in", "admin1234"))}>Admin demo</Button>
               </div>
             </div>
           )}

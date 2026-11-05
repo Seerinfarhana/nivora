@@ -14,6 +14,10 @@ export async function api<T = any>(path: string, opts: RequestInit = {}): Promis
       ...(opts.headers || {}),
     },
   })
+  if (res.status === 401 && token && path !== '/api/auth/login') {
+    setToken(null)
+    window.location.href = '/login'
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || 'Something went wrong')

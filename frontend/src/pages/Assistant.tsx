@@ -3,7 +3,7 @@ import { useLocation, Link } from "react-router-dom";
 import gsap from "gsap";
 import { Mic, Send, Volume2, VolumeX, ShieldCheck, Sparkles, Check, X } from "lucide-react";
 import { usePageEnter } from "../lib/usePageEnter";
-import { Card, Lang, Msg, greeting, quickPrompts, respond, userMsg } from "../lib/assistant";
+import { Card, Lang, Msg, askAssistant, botMsg, cancelTransfer, confirmTransfer, greeting, quickPrompts, userMsg } from "../lib/assistant";
 import { inr, cn } from "../lib/utils";
 import { Button, PageHeader } from "../components/ui";
 
@@ -65,25 +65,29 @@ export default function Assistant() {
     if (speak && "speechSynthesis" in window) { const u = new SpeechSynthesisUtterance(m.text); u.lang = speechLang[lang]; window.speechSynthesis.speak(u); }
   };
 
-  const send = (raw: string) => {
+  const send = async (raw: string) => {
     const q = raw.trim(); if (!q) return;
     setMsgs(p => [...p, userMsg(q)]); setText(""); setTyping(true);
-    setTimeout(() => { setTyping(false); say(respond(q, lang)); }, 750);
+    try { say(await askAssistant(q, lang)); }
+    catch (e) { say(botMsg(e instanceof Error ? e.message : "I could not reach the server. Please try again.")); }
+    finally { setTyping(false); }
   };
 
   useEffect(() => { if (state?.prompt && !started.current) { started.current = true; send(state.prompt); } /* eslint-disable-next-line */ }, []);
 
-  const resolve = (id: string, status: "done" | "cancelled", pin?: string) => {
-    let follow = "";
-    setMsgs(p => p.map(m => {
-      if (m.id !== id || m.card?.type !== "confirm") return m;
-      const c = m.card;
-      if (status === "done") follow = c.kind === "transfer" ? `Done. ${c.title.replace("Send", "Sent")}. Reference NV${Math.floor(100000 + Math.random() * 900000)}. I have saved this payee for next time.` : "Your debit card is now blocked. Your replacement card will arrive in 5 to 7 working days.";
-      else follow = "No problem, I have cancelled that. Nothing was changed.";
-      return { ...m, card: { ...c, status } };
-    }));
-    setTimeout(() => say({ id: `f${Date.now()}`, role: "bot", text: follow, time: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) }), 450);
-    void pin;
+  const resolve = async (id: string, status: "done" | "cancelled", pin?: string) => {
+    const mark = (st: "pending" | "done" | "cancelled") =>
+      setMsgs(p => p.map(m => {
+        if (m.id !== id || m.card?.type !== "confirm") return m;
+        const c = m.card;
+        return { ...m, card: { ...c, status: st } };
+      }));
+    try {
+      if (status === "cancelled") { const r = await cancelTransfer(); mark("cancelled"); say(botMsg(r.reply)); return; }
+      const r = await confirmTransfer(pin ?? "");
+      if (r.status === "done") mark("done");   // wrong PIN leaves the card open so the user can retry
+      say(botMsg(r.reply));
+    } catch (e) { say(botMsg(e instanceof Error ? e.message : "Something went wrong. Please try again.")); }
   };
 
   const listen = () => {
