@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from .config import ALGORITHM, SECRET_KEY, TOKEN_MINUTES
 from .db import get_session
-from .models import User
+from .models import DeviceSession, User
 
 bearer = HTTPBearer()
 
@@ -24,22 +24,35 @@ def check_pw(plain: str, hashed: str) -> bool:
         return False
 
 
-def make_token(user: User) -> str:
+def make_token(user: User, sid: int) -> str:
+    """sid is the id of the device session this sign-in created."""
     exp = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_MINUTES)
-    return jwt.encode({"sub": str(user.id), "role": user.role, "exp": exp}, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode({"sub": str(user.id), "sid": sid, "role": user.role, "exp": exp}, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def _decode(cred: HTTPAuthorizationCredentials) -> dict:
+    try:
+        return jwt.decode(cred.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Invalid or expired token")
+
+
+def current_sid(cred: HTTPAuthorizationCredentials = Depends(bearer)) -> int:
+    return int(_decode(cred).get("sid", 0))
 
 
 def current_user(
     cred: HTTPAuthorizationCredentials = Depends(bearer),
     session: Session = Depends(get_session),
 ) -> User:
-    try:
-        data = jwt.decode(cred.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except jwt.PyJWTError:
-        raise HTTPException(401, "Invalid or expired token")
+    data = _decode(cred)
     user = session.get(User, int(data["sub"]))
-    if not user:
-        raise HTTPException(401, "User not found")
+    dev = session.get(DeviceSession, int(data.get("sid", 0)))
+    if not user or not dev or dev.revoked or dev.user_id != user.id:
+        raise HTTPException(401, "Session ended. Please sign in again.")
+    dev.last_active = datetime.now()
+    session.add(dev)
+    session.commit()
     return user
 
 

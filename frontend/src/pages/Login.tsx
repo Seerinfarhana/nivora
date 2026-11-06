@@ -1,12 +1,13 @@
-import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ShieldCheck, Mic, Languages, Lock } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ShieldCheck, Mic, Users, Lock } from "lucide-react";
 import Logo from "../components/Logo";
 import SplitText from "../components/reactbits/SplitText";
 import BlurText from "../components/reactbits/BlurText";
 import SoftBlobs from "../components/reactbits/SoftBlobs";
 import { Button, Field } from "../components/ui";
 import { useAuth, User } from "../context/AuthContext";
+import { api } from "../lib/api";
 import { cn } from "../lib/utils";
 
 type Mode = "signin" | "register";
@@ -17,9 +18,23 @@ export default function Login() {
   const [mode, setMode] = useState<Mode>("signin");
   const [step, setStep] = useState<1 | 2>(1);
   const [err, setErr] = useState("");
-  const [f, setF] = useState({ name: "", email: "", phone: "", password: "", pin: "", lang: "en", consent: false });
+  const [f, setF] = useState({ name: "", email: "", phone: "", password: "", pin: "", consent: false });
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string[]>([]);
+  const [devHint, setDevHint] = useState(false);
+  const [wait, setWait] = useState(0);
+  useEffect(() => { if (wait <= 0) return; const t = setTimeout(() => setWait(w => w - 1), 1000); return () => clearTimeout(t); }, [wait]);
+
+  // Asks the server to email (and, if SMS is set up, text) a one-time code
+  const sendCode = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await api<{ sent: string[]; dev_console: boolean; resend_in: number }>("/api/otp/send", { method: "POST", body: JSON.stringify({ email: f.email, phone: f.phone }) });
+      setSentTo(r.sent); setDevHint(r.dev_console); setWait(r.resend_in); setOtp(""); setStep(2);
+    } catch (e) { setErr(e instanceof Error ? e.message : "We could not send the code. Please try again."); }
+    finally { setBusy(false); }
+  };
   const set = (k: string, v: string | boolean) => setF(p => ({ ...p, [k]: v }));
 
   const run = async (fn: () => Promise<User>) => {
@@ -48,10 +63,13 @@ export default function Login() {
       if (f.password.length < 8) return setErr("Password must be at least 8 characters.");
       if (!/^\d{4,6}$/.test(f.pin) || new Set(f.pin).size === 1) return setErr("Choose a transaction PIN of 4 to 6 digits that is not all the same digit.");
       if (!f.consent) return setErr("Please accept the terms and privacy notice to continue.");
-      setErr(""); return setStep(2);
+      setErr(""); return sendCode();
     }
-    if (!/^\d{6}$/.test(otp)) return setErr("Enter the 6-digit code we sent to your mobile.");
-    run(() => register({ name: f.name, email: f.email, password: f.password, pin: f.pin, phone: f.phone, language: f.lang }));
+    if (!/^\d{6}$/.test(otp)) return setErr("Enter the 6-digit code we sent you.");
+    run(async () => {
+      const v = await api<{ otp_token: string }>("/api/otp/verify", { method: "POST", body: JSON.stringify({ email: f.email, code: otp }) });
+      return register({ name: f.name, email: f.email, password: f.password, pin: f.pin, phone: f.phone, otp_token: v.otp_token });
+    });
   };
 
   return (
@@ -61,13 +79,13 @@ export default function Login() {
         <SoftBlobs />
         <Logo className="relative" />
         <div className="relative max-w-lg">
-          <SplitText text="Banking that talks your language." className="font-display text-5xl font-semibold leading-[1.08]" delay={0.2} />
-          <BlurText text="Ask in English, Hindi or Tamil. NIVORA checks balances, explains spending and sends money, with your approval at every step." className="mt-6 text-lg text-brand-700/80" delay={0.9} />
+          <SplitText text="Banking that explains itself." className="font-display text-5xl font-semibold leading-[1.08]" delay={0.2} />
+          <BlurText text="Ask in plain English. NIVORA checks balances, explains spending and sends money, with your approval at every step." className="mt-6 text-lg text-brand-700/80" delay={0.9} />
         </div>
         <ul className="relative grid gap-3 text-sm text-brand-700">
           {[
             [Mic, "Speak or type. The assistant understands both."],
-            [Languages, "Built for first-time, rural and senior users."],
+            [Users, "Built for first-time, rural and senior users."],
             [ShieldCheck, "Every payment needs your confirmation and PIN."],
           ].map(([Icon, text], i) => {
             const I = Icon as typeof Mic;
@@ -89,15 +107,16 @@ export default function Login() {
             ))}
           </div>
 
-          <h2 className="text-2xl font-semibold">{mode === "signin" ? "Welcome back" : step === 1 ? "Open your account" : "Verify your mobile number"}</h2>
+          <h2 className="text-2xl font-semibold">{mode === "signin" ? "Welcome back" : step === 1 ? "Open your account" : "Verify your email"}</h2>
           <p className="mb-6 mt-1 text-sm text-muted">
-            {mode === "signin" ? "Sign in to see your accounts and talk to your assistant." : step === 1 ? "It takes about two minutes. You can finish KYC after signing up." : `We sent a 6-digit code to +91 ${f.phone}. For this demo, any 6 digits work.`}
+            {mode === "signin" ? "Sign in to see your accounts and talk to your assistant." : step === 1 ? "It takes about two minutes. You can finish KYC after signing up." : `We sent a 6-digit code to ${f.email}${sentTo.includes("sms") ? ` and to +91 ${f.phone}` : ""}. It expires in 10 minutes. Check your spam folder if you do not see it.`}
           </p>
 
           <form onSubmit={mode === "signin" ? submitSignin : submitRegister} className="space-y-4" noValidate>
             {mode === "signin" && (<>
               <Field label="Email" type="email" autoComplete="email" value={f.email} onChange={e => set("email", e.target.value)} placeholder="you@example.com" />
               <Field label="Password" type="password" autoComplete="current-password" value={f.password} onChange={e => set("password", e.target.value)} placeholder="At least 6 characters" />
+              <div className="-mt-2 text-right"><Link to="/forgot" className="text-sm font-semibold text-brand-600 hover:underline">Forgot password?</Link></div>
             </>)}
 
             {mode === "register" && step === 1 && (<>
@@ -106,21 +125,20 @@ export default function Login() {
               <Field label="Mobile number" inputMode="numeric" maxLength={10} value={f.phone} onChange={e => set("phone", e.target.value.replace(/\D/g, ""))} />
               <Field label="Password" type="password" autoComplete="new-password" value={f.password} onChange={e => set("password", e.target.value)} hint="Use 8 or more characters." />
               <Field label="Transaction PIN" type="password" inputMode="numeric" maxLength={6} value={f.pin} onChange={e => set("pin", e.target.value.replace(/\D/g, ""))} hint="4 to 6 digits. You enter it to approve payments." />
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium">Preferred language</span>
-                <select className="field" value={f.lang} onChange={e => set("lang", e.target.value)}>
-                  <option value="en">English</option><option value="hi">हिन्दी (Hindi)</option><option value="ta">தமிழ் (Tamil)</option>
-                </select>
-              </label>
               <label className="flex items-start gap-3 text-sm text-muted">
                 <input type="checkbox" className="mt-1 h-4 w-4 accent-[#3f7f86]" checked={f.consent} onChange={e => set("consent", e.target.checked)} />
                 I agree to the terms and understand how NIVORA uses my data to run the assistant.
               </label>
             </>)}
 
-            {mode === "register" && step === 2 && (
-              <Field label="6-digit code" inputMode="numeric" maxLength={6} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ""))} placeholder="••••••" className="text-center text-lg tracking-[0.5em]" />
-            )}
+            {mode === "register" && step === 2 && (<>
+              <Field label="6-digit code" inputMode="numeric" maxLength={6} autoComplete="one-time-code" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ""))} placeholder="••••••" className="text-center text-lg tracking-[0.5em]" />
+              {devHint && <p className="rounded-xl bg-sun/40 px-3 py-2 text-xs text-ink">Email sending is not set up on the server yet, so the code was printed in the backend terminal. Add the SMTP settings to <b>.env</b> to send real emails.</p>}
+              <div className="flex items-center justify-between text-sm">
+                <button type="button" className="font-semibold text-brand-600 hover:underline" onClick={() => { setStep(1); setErr(""); }}>Change email</button>
+                <button type="button" disabled={wait > 0 || busy} className="font-semibold text-brand-600 hover:underline disabled:text-muted disabled:no-underline" onClick={sendCode}>{wait > 0 ? `Send again in ${wait}s` : "Send a new code"}</button>
+              </div>
+            </>)}
 
             {err && <p role="alert" className="rounded-xl bg-rose px-3 py-2 text-sm text-rose-ink">{err}</p>}
 
@@ -138,7 +156,7 @@ export default function Login() {
               </div>
             </div>
           )}
-          <p className="mt-6 flex items-center justify-center gap-2 text-xs text-muted"><Lock className="h-3.5 w-3.5" /> Your details are encrypted and never shown to the AI.</p>
+          <p className="mt-6 flex items-center justify-center gap-2 text-xs text-muted"><Lock className="h-3.5 w-3.5" /> Your PIN, password and one-time codes are never shown to the AI.</p>
         </div>
       </section>
     </div>

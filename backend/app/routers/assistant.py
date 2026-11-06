@@ -11,14 +11,21 @@ from .. import tools
 from ..db import get_session
 from ..models import User
 from ..security import current_user
+from .. import agent
 from ..tools import inr
 
 router = APIRouter()
 
 
+class Turn(BaseModel):
+    role: str
+    content: str
+
+
 class ChatIn(BaseModel):
     message: str
     language: str = "en"
+    history: list[Turn] = []
 
 
 class ConfirmIn(BaseModel):
@@ -31,10 +38,6 @@ def out(text: str, confirm: dict | None = None):
 
 def route(msg: str, s: Session, u: User):
     t = msg.lower()
-
-    if re.search(r"\b(otp|pin|cvv|password)\b", t):
-        tools.log(s, u, "Sensitive data", "Refused sharing credentials", "Blocked")
-        return out("For your safety, never share your PIN, OTP, CVV or password in chat. NIVORA will never ask for them here.")
 
     if re.search(r"balance|बैलेंस|शेष|இருப்பு|பேலன்ஸ்", t):
         b = tools.get_balance(s, u)
@@ -71,16 +74,11 @@ def route(msg: str, s: Session, u: User):
         tools.block_card(s, u)
         return out("Your debit card is blocked right now. You can request a replacement from Profile and security.")
 
-    if re.search(r"send|transfer|भेज|அனுப்ப", t):
-        amt = re.search(r"(\d[\d,]*(?:\.\d+)?)", t)
-        ben = tools.find_beneficiary(s, u, t)
-        if not ben:
-            return out("Who should I send it to? I can only pay people saved in your payees.")
-        if not amt:
-            return out(f"How much would you like to send to {ben.name}?")
-        r = tools.prepare_transfer(s, u, ben, float(amt.group(1).replace(",", "")))
+    if re.search(r"send|transfer|pay\b|भेज|அனுப்ப", t):
+        r = tools.start_payment(s, u, msg)
         if r["status"] == "needs_confirmation":
-            return out(f"Please confirm: send {inr(r['amount'])} to {r['to']}. Enter your PIN to approve.", {"to": r["to"], "amount": r["amount"]})
+            note = " This is a new payee." if r.get("new_payee") else ""
+            return out(f"Please confirm: send {inr(r['amount'])} to {r['to']}.{note} Enter your PIN to approve.", {"to": r["to"], "amount": r["amount"]})
         return out(r["reason"])
 
     f = tools.faq_search(msg)
@@ -91,6 +89,17 @@ def route(msg: str, s: Session, u: User):
 
 @router.post("/chat")
 def chat(body: ChatIn, s: Session = Depends(get_session), u: User = Depends(current_user)):
+    # A PIN, OTP, CVV, password or full card number typed in chat is never processed or sent to the AI.
+    if agent.shares_secret(body.message):
+        tools.log(s, u, "Sensitive data", "Refused sharing credentials", "Blocked")
+        return out("For your safety, never share your PIN, OTP, CVV, password or card number in chat. I will never ask for them. To approve a payment, use the PIN box on the confirmation card.")
+    if agent.enabled():
+        try:
+            return agent.chat(s, u, body.message, [h.model_dump() for h in body.history])
+        except agent.RateLimited as e:
+            return out(str(e))
+        except Exception as e:  # the AI service is down, out of credit or misconfigured: keep working with the built-in assistant
+            print(f"[WARN] AI assistant unavailable, using the built-in one: {e}")
     return route(body.message, s, u)
 
 
@@ -98,7 +107,8 @@ def chat(body: ChatIn, s: Session = Depends(get_session), u: User = Depends(curr
 def confirm(body: ConfirmIn, s: Session = Depends(get_session), u: User = Depends(current_user)):
     r = tools.confirm_transfer(s, u, body.pin)
     if r["status"] == "done":
-        return {"status": "done", "reply": f"Done. {inr(r['amount'])} sent to {r['to']}. Reference {r['ref']}. New balance {inr(r['balance'])}."}
+        sim = " This is a simulated payment: NIVORA is a prototype and is not connected to the live UPI network." if r.get("simulated") else ""
+        return {"status": "done", "reply": f"Done. {inr(r['amount'])} sent to {r['to']}. Reference {r['ref']}. New balance {inr(r['balance'])}.{sim}"}
     return {"status": "locked" if r["status"] == "locked" else "rejected", "reply": r["reason"]}
 
 

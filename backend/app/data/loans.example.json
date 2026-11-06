@@ -1,0 +1,14 @@
+[
+  {
+    "id": "example-1",
+    "lender": "NAME OF THE BANK",
+    "product": "NAME OF THE LOAN PRODUCT",
+    "type": "Personal",
+    "rate": "COPY THE RATE EXACTLY AS THE BANK PUBLISHES IT",
+    "max_amount": "COPY FROM THE BANK PAGE",
+    "tenure": "COPY FROM THE BANK PAGE",
+    "notes": "Any fee or condition the bank states",
+    "source_url": "https://OFFICIAL-BANK-PAGE",
+    "last_checked": "YYYY-MM-DD"
+  }
+]

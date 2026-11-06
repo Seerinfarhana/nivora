@@ -2,11 +2,13 @@
 Every function is scoped to the logged-in user and writes to the audit log where it matters."""
 import math
 import random
+import re
+from types import SimpleNamespace
 from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
-from .config import DAILY_TRANSFER_LIMIT
+from .config import NEW_PAYEE_LIMIT
 from .models import Account, AuditLog, Beneficiary, PinGuard, Transaction, User
 from .security import check_pw
 
@@ -123,7 +125,7 @@ def verify_pin(s: Session, u: User, pin: str):
     return {"ok": False, "locked": False, "reason": f"That PIN is incorrect. {n} {'try' if n == 1 else 'tries'} left."}
 
 
-def prepare_transfer(s: Session, u: User, ben: Beneficiary, amount: float):
+def prepare_transfer(s: Session, u: User, ben, amount: float, extra: dict | None = None):
     left = _lock_minutes_left(s, u)
     if left:
         return {"status": "rejected", "reason": f"Transfers are paused after too many wrong PINs. Try again in {_mins(left)}."}
@@ -136,10 +138,10 @@ def prepare_transfer(s: Session, u: User, ben: Beneficiary, amount: float):
     today = s.exec(
         select(Transaction).where(Transaction.user_id == u.id, Transaction.category == "Transfer", Transaction.created_at >= start)
     ).all()
-    if sum(abs(t.amount) for t in today) + amount > DAILY_TRANSFER_LIMIT:
+    if sum(abs(t.amount) for t in today) + amount > u.txn_limit:
         log(s, u, "Transfer " + inr(amount), "Above daily limit", "Blocked")
-        return {"status": "rejected", "reason": f"This would pass your daily transfer limit of {inr(DAILY_TRANSFER_LIMIT)}."}
-    PENDING[u.id] = {"to": ben.name, "amount": amount}
+        return {"status": "rejected", "reason": f"This would pass your daily transfer limit of {inr(u.txn_limit)}."}
+    PENDING[u.id] = {"to": ben.name, "amount": amount, **(extra or {})}
     log(s, u, "Transfer " + inr(amount), "Waiting for PIN confirmation", "Review")
     return {"status": "needs_confirmation", "to": ben.name, "amount": amount}
 
@@ -163,10 +165,95 @@ def confirm_transfer(s: Session, u: User, pin: str):
     acc.balance -= p["amount"]
     s.add(Transaction(user_id=u.id, account_id=acc.id, name=p["to"], category="Transfer", amount=-p["amount"]))
     s.add(acc)
+    rec = p.get("recipient") or {}
+    if rec.get("kind") == "internal":  # the other person also banks with NIVORA, so their account is credited for real
+        dest = s.exec(select(Account).where(Account.user_id == rec["user_id"], Account.type == "Savings")).first()
+        if dest:
+            dest.balance += p["amount"]
+            s.add(dest)
+            s.add(Transaction(user_id=rec["user_id"], account_id=dest.id, name=f"From {u.name}", category="Income", amount=p["amount"]))
+    if rec.get("new"):  # remember the payee after the first confirmed payment
+        s.add(Beneficiary(user_id=u.id, name=rec["display"], account_no="UPI", upi_id=rec.get("upi_id", ""), phone=rec.get("phone", "")))
     s.commit()
     PENDING.pop(u.id, None)
     log(s, u, "Transfer " + inr(p["amount"]), "Confirmed with PIN", "Approved")
-    return {"status": "done", "to": p["to"], "amount": p["amount"], "ref": f"NV{random.randint(10000, 99999)}", "balance": acc.balance}
+    return {"status": "done", "to": p["to"], "amount": p["amount"], "ref": f"NV{random.randint(10000, 99999)}", "balance": acc.balance,
+            "simulated": rec.get("kind") == "external"}
+
+
+UPI_RE = re.compile(r"(?<![\w.])([A-Za-z0-9][\w.\-]*@[A-Za-z][A-Za-z0-9.\-]+)")
+PHONE_RE = re.compile(r"(?<!\d)(?:\+?91[\s-]?)?([6-9]\d{9})(?!\d)")
+AMOUNT_RE = re.compile(r"(?:₹|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d{1,2})?)", re.I)
+
+
+def parse_payment(text: str):
+    """Pulls a UPI ID or mobile number, and the amount, out of a sentence like 'send 500 to ravi@oksbi'."""
+    token, rest = None, text
+    m = UPI_RE.search(text)
+    if m:
+        token, rest = m.group(1), text.replace(m.group(0), " ")
+    else:
+        m = PHONE_RE.search(text)
+        if m:
+            token, rest = m.group(1), text.replace(m.group(0), " ")
+    a = AMOUNT_RE.search(rest)
+    return token, (float(a.group(1).replace(",", "")) if a else None)
+
+
+def resolve_recipient(s: Session, u: User, ref: str):
+    """Works out who a payment goes to. Returns a dict, or None when the name is not a saved payee."""
+    ref = ref.strip()
+    low = ref.lower()
+    digits = re.sub(r"\D", "", ref)
+    upi = low if "@" in low else ""
+    phone = digits[-10:] if not upi and len(digits) >= 10 and digits[-10] in "6789" else ""
+    if upi.endswith("@nivora") and upi.split("@")[0].isdigit():
+        phone = upi.split("@")[0][-10:]  # every NIVORA customer's UPI ID is <mobile>@nivora
+
+    if u.phone and (phone == u.phone or upi == f"{u.phone}@nivora"):
+        return {"error": "You cannot send money to yourself."}
+    payees = s.exec(select(Beneficiary).where(Beneficiary.user_id == u.id)).all()
+    for b in payees:
+        if (upi and b.upi_id.lower() == upi) or (phone and b.phone == phone) or (not upi and not phone and b.name.lower().split()[0] in low):
+            return {"kind": "saved", "display": b.name, "upi_id": b.upi_id, "phone": b.phone, "new": False}
+    if not upi and not phone:
+        return None
+    if phone:
+        other = s.exec(select(User).where(User.phone == phone, User.id != u.id, User.role == "customer")).first()
+        if other:
+            return {"kind": "internal", "display": f"{other.name} (NIVORA)", "upi_id": f"{phone}@nivora", "phone": phone, "user_id": other.id, "new": True}
+    return {"kind": "external", "display": upi or f"+91 {phone}", "upi_id": upi, "phone": phone, "new": True}
+
+
+def prepare_payment(s: Session, u: User, recipient: str, amount: float | None):
+    """Step 1 of an agent payment. Nothing moves until the customer enters their PIN on the confirmation card."""
+    if not amount or amount <= 0:
+        return {"status": "rejected", "reason": "Tell me how much to send."}
+    r = resolve_recipient(s, u, recipient)
+    if r is None:
+        return {"status": "rejected", "reason": f"I could not find \"{recipient}\" in your payees. Give me their UPI ID or 10-digit mobile number."}
+    if r.get("error"):
+        return {"status": "rejected", "reason": r["error"]}
+    if r["new"] and amount > NEW_PAYEE_LIMIT:
+        log(s, u, "Transfer " + inr(amount), "Above new-payee limit", "Blocked")
+        return {"status": "rejected", "reason": f"The first payment to someone new is limited to {inr(NEW_PAYEE_LIMIT)}. Send a smaller amount first; after that your normal daily limit applies."}
+    res = prepare_transfer(s, u, SimpleNamespace(name=r["display"]), amount, extra={"recipient": r})
+    if res["status"] == "needs_confirmation":
+        res["new_payee"], res["simulated"] = r["new"], r["kind"] == "external"
+    return res
+
+
+def start_payment(s: Session, u: User, text: str):
+    token, amount = parse_payment(text)
+    who = token
+    if not who:
+        b = find_beneficiary(s, u, text)
+        who = b.name if b else None
+    if not who:
+        return {"status": "rejected", "reason": "Who should I send it to? Give me a UPI ID, a 10-digit mobile number, or the name of a saved payee."}
+    if amount is None:
+        return {"status": "rejected", "reason": f"How much would you like to send to {who}?"}
+    return prepare_payment(s, u, who, amount)
 
 
 def cancel_transfer(s: Session, u: User):
@@ -196,6 +283,8 @@ FAQ = [
     {"title": "Failed payment", "keywords": ["fail", "failed", "refund", "debited"], "answer": "Failed payments are usually caused by low balance, a daily limit or a server timeout. Money that was debited is refunded within 3 working days."},
     {"title": "Phishing", "keywords": ["phishing", "fraud", "scam", "suspicious"], "answer": "NIVORA never asks for your PIN, OTP or password. Don't click links in unexpected messages and report them from Profile and security."},
     {"title": "Update KYC", "keywords": ["update", "kyc", "address", "document"], "answer": "Open Profile, choose Update KYC and upload the new document. Verification usually completes within one working day."},
+    {"title": "Forgot card PIN", "keywords": ["forgot", "pin", "reset", "generate", "change"], "answer": "You can usually set or reset a card PIN from your bank's mobile app, net banking, an ATM or the bank's IVR. The steps differ by bank and by card, so tell me your bank, whether it is a debit or credit card, and the network (RuPay, Visa or Mastercard). Never share your PIN or OTP with anyone."},
+    {"title": "International transactions", "keywords": ["international", "abroad", "foreign", "overseas", "enable"], "answer": "Cards are often switched off for international use by default. Most banks let you turn it on from their app or net banking under card settings, usually with limits you can set. Tell me your bank and card type and I will explain the steps."}
 ]
 
 

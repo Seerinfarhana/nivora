@@ -53,7 +53,7 @@ export default function AppShell({ variant = "customer" }: { variant?: "customer
             <p className="truncate text-xs text-muted">{variant === "admin" ? "Operations admin" : "Savings customer"}</p>
           </div>
         </div>
-        <button onClick={() => { logout(); go("/login"); }}
+        <button onClick={async () => { await logout(); go("/login"); }}
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2 text-sm font-semibold text-muted transition hover:text-rose-ink">
           <LogOut className="h-4 w-4" /> Sign out
         </button>

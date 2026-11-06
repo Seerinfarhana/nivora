@@ -16,7 +16,6 @@ interface Customer { id: string; name: string; email: string; language: string; 
 
 type Tab = "overview" | "customers" | "risk";
 const statusTone = { Approved: "mint", Review: "sand", Blocked: "rose" } as const;
-const langName: Record<string, string> = { en: "English", hi: "Hindi", ta: "Tamil" };
 
 function AdminView({ ov, customers }: { ov: Overview; customers: Customer[] }) {
   const ref = usePageEnter();
@@ -67,12 +66,12 @@ function AdminView({ ov, customers }: { ov: Overview; customers: Customer[] }) {
       {tab === "customers" && (
         <div data-enter className="card overflow-hidden">
           <div className="border-b border-line p-4"><div className="relative max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" /><input className="field pl-9" placeholder="Search by name, email or ID" value={q} onChange={e => setQ(e.target.value)} aria-label="Search customers" /></div></div>
-          <div className="scroll-thin overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm">
-            <thead className="bg-mist/60 text-xs text-muted"><tr>{["ID", "Customer", "Email", "Language", "Goals", "Saved toward goals", "Assistant actions", "Blocked"].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead>
+          <div className="scroll-thin overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="bg-mist/60 text-xs text-muted"><tr>{["ID", "Customer", "Email", "Goals", "Saved toward goals", "Assistant actions", "Blocked"].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead>
             <tbody className="divide-y divide-line">{rows.map(c => (
-              <tr key={c.id} className="hover:bg-mist/40"><td className="px-4 py-3 text-muted">{c.id}</td><td className="px-4 py-3 font-semibold">{c.name}</td><td className="px-4 py-3">{c.email}</td><td className="px-4 py-3">{langName[c.language] ?? c.language}</td>
+              <tr key={c.id} className="hover:bg-mist/40"><td className="px-4 py-3 text-muted">{c.id}</td><td className="px-4 py-3 font-semibold">{c.name}</td><td className="px-4 py-3">{c.email}</td>
                 <td className="px-4 py-3">{c.goals}</td><td className="px-4 py-3">{inr(c.goal_saved)} <span className="text-muted">of {inr(c.goal_target)}</span></td><td className="px-4 py-3">{c.actions}</td><td className="px-4 py-3"><Badge tone={c.blocked ? "rose" : "neutral"}>{c.blocked}</Badge></td></tr>))}
-              {rows.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">No customers match your search.</td></tr>}</tbody>
+              {rows.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted">No customers match your search.</td></tr>}</tbody>
           </table></div>
         </div>
       )}

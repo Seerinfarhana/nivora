@@ -1,11 +1,44 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, Clock, Search, X, Sparkles } from "lucide-react";
+import { ChevronDown, Clock, ExternalLink, Search, X, Sparkles } from "lucide-react";
 import { usePageEnter } from "../lib/usePageEnter";
 import { articles, faqs } from "../lib/mockData";
+import { useApi } from "../lib/useApi";
 import SpotlightCard from "../components/reactbits/SpotlightCard";
 import { Badge, Button, PageHeader } from "../components/ui";
 import { cn } from "../lib/utils";
+
+type Feed = "press" | "notifications" | "publications";
+const feedTabs: { id: Feed; label: string }[] = [{ id: "press", label: "Press releases" }, { id: "notifications", label: "Notifications" }, { id: "publications", label: "Publications" }];
+const shortDate = (s: string) => { const d = new Date(s); return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }); };
+
+/** Live from the Reserve Bank of India's own feeds, through the NIVORA backend. */
+function RbiUpdates() {
+  const [feed, setFeed] = useState<Feed>("press");
+  const { data, loading, error } = useApi<{ items: { title: string; link: string; date: string }[]; live: boolean }>(`/api/external/rbi/${feed}`);
+  return (
+    <div data-enter className="card mt-10 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-xl font-semibold">Latest from the Reserve Bank of India</h2><p className="text-sm text-muted">Straight from rbi.org.in, so you see what changed in the rules.</p></div>
+        <div className="flex flex-wrap gap-2">{feedTabs.map(t => <button key={t.id} onClick={() => setFeed(t.id)} className={cn("rounded-full border px-3 py-1 text-sm font-semibold transition", feed === t.id ? "border-brand-500 bg-brand-500 text-white" : "border-line bg-white text-muted hover:text-ink")}>{t.label}</button>)}</div>
+      </div>
+      {loading && !data && <p className="py-6 text-sm text-muted">Loading the latest updates…</p>}
+      {error && <p className="py-6 text-sm text-rose-ink">{error}</p>}
+      {data && data.items.length === 0 && <p className="py-6 text-sm text-muted">We could not reach the RBI website just now. Please try again in a few minutes.</p>}
+      {data && data.items.length > 0 && (
+        <ul className="mt-3 divide-y divide-line">
+          {data.items.map(i => (
+            <li key={i.link}><a href={i.link} target="_blank" rel="noopener noreferrer" className="flex items-start justify-between gap-4 py-3 hover:text-brand-700">
+              <span className="text-sm font-semibold">{i.title}</span>
+              <span className="flex shrink-0 items-center gap-2 text-xs text-muted">{shortDate(i.date)}<ExternalLink className="h-3.5 w-3.5" /></span>
+            </a></li>
+          ))}
+        </ul>
+      )}
+      {data && !data.live && data.items.length > 0 && <p className="mt-3 text-xs text-muted">Showing the last updates we could fetch. RBI could not be reached just now.</p>}
+    </div>
+  );
+}
 
 export default function Knowledge() {
   const ref = usePageEnter();
@@ -43,6 +76,8 @@ export default function Knowledge() {
         ))}
         {list.length === 0 && <p className="text-sm text-muted md:col-span-2">No guides match your search. Try a shorter word, or ask the assistant.</p>}
       </div>
+
+      <RbiUpdates />
 
       <h2 data-enter className="mb-3 mt-10 text-xl font-semibold">Common questions</h2>
       <div data-enter className="card divide-y divide-line">

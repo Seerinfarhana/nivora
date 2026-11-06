@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import SmoothScroll from "./lib/SmoothScroll";
 import { useAuth, Role } from "./context/AuthContext";
 import AppShell from "./layout/AppShell";
@@ -11,11 +11,17 @@ import Recommendations from "./pages/Recommendations";
 import Knowledge from "./pages/Knowledge";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
+import Onboarding from "./pages/Onboarding";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import { ReactNode } from "react";
 
 function Guard({ role, children }: { role?: Role; children: ReactNode }) {
   const { user } = useAuth();
+  const { pathname } = useLocation();
   if (!user) return <Navigate to="/login" replace />;
+  // New customers tell us about their money before they see a dashboard
+  if (user.role === "customer" && !user.onboarded && pathname !== "/onboarding") return <Navigate to="/onboarding" replace />;
   if (role && user.role !== role) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
@@ -27,6 +33,9 @@ export default function App() {
       <SmoothScroll />
       <Routes>
         <Route path="/login" element={user ? <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace /> : <Login />} />
+        <Route path="/forgot" element={<ForgotPassword />} />
+        <Route path="/reset" element={<ResetPassword />} />
+        <Route path="/onboarding" element={<Guard><Onboarding /></Guard>} />
         <Route element={<Guard><AppShell /></Guard>}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/assistant" element={<Assistant />} />

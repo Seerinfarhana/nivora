@@ -53,14 +53,6 @@ export const goals = [
   { id: 3, name: "Family trip to Kerala", target: 60000, saved: 14000, due: "Jun 2027", tone: "lav" as const },
 ];
 
-export const recommendations = [
-  { id: 1, kind: "Deposit", title: "6-month Fixed Deposit", rate: "7.1% p.a.", match: 94, tone: "brand" as const, why: "You keep ₹90,000 or more idle in savings every month. A short FD earns about 3x more.", cta: "Open an FD" },
-  { id: 2, kind: "Savings", title: "Auto-save RD of ₹5,000", rate: "6.8% p.a.", match: 89, tone: "mint" as const, why: "Your salary arrives on the 3rd. An auto-debit on the 4th makes saving effortless.", cta: "Start an RD" },
-  { id: 3, kind: "Insurance", title: "Health cover top-up", rate: "From ₹610/mo", match: 81, tone: "sky" as const, why: "Your health spending rose twice this year and you have no cover linked to this account.", cta: "Compare plans" },
-  { id: 4, kind: "Investing", title: "Index fund SIP", rate: "From ₹1,000/mo", match: 76, tone: "lav" as const, why: "Your emergency fund is 65% complete. A small SIP can begin next to it.", cta: "Learn about SIPs" },
-  { id: 5, kind: "Credit", title: "Pre-approved personal loan", rate: "11.5% p.a.", match: 68, tone: "sand" as const, why: "Your repayment history qualifies you for up to ₹2,50,000. No action is needed.", cta: "Check eligibility" },
-];
-
 export const articles = [
   { id: 1, cat: "Getting started", title: "Set up your first UPI payment", mins: 3, body: "Open Payments, choose Pay by UPI, and enter the UPI ID or scan a QR code. Review the name shown, enter the amount and confirm with your 6-digit UPI PIN. NIVORA never asks for your PIN outside this screen." },
   { id: 2, cat: "Safety", title: "How to spot a fake bank call", mins: 4, body: "Your bank will never ask for your PIN, OTP or full card number on a call. If someone does, hang up and report it from Profile > Security. Scammers create urgency, so slow down before you share anything." },
@@ -74,13 +66,6 @@ export const faqs = [
   { q: "Is it safe to talk to the AI assistant about my money?", a: "Yes. The assistant only sees masked account details, and it can read data or start a payment only through secure, permissioned actions. Every payment needs your confirmation and PIN." },
   { q: "What is the daily transfer limit?", a: "The default limit is ₹1,00,000 per day for UPI and ₹2,00,000 for IMPS. You can lower it any time in Profile > Security." },
   { q: "How do I block a lost card?", a: "Ask the assistant to block your card, or go to Profile > Security > Cards. The block is instant and you can lift it from the same place." },
-  { q: "Can I use NIVORA in my own language?", a: "Yes. Choose English, Hindi or Tamil in Preferences. You can also speak to the assistant in these languages." },
-];
-
-export const devices = [
-  { id: 1, name: "Chrome on Windows", place: "Chennai, IN", when: "Active now", current: true },
-  { id: 2, name: "NIVORA app, Pixel 8", place: "Chennai, IN", when: "Yesterday, 9:12 pm", current: false },
-  { id: 3, name: "Safari on iPad", place: "Coimbatore, IN", when: "28 Oct, 6:40 pm", current: false },
 ];
 
 /* ---------- Admin ---------- */

@@ -4,3 +4,5 @@ sqlmodel
 pyjwt
 bcrypt
 python-dotenv
+user-agents
+httpx

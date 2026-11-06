@@ -1,8 +1,6 @@
 import { api } from "./api";
 import { inr, timeNow } from "./utils";
 
-export type Lang = "en" | "hi" | "ta";
-
 export type Card =
   | { type: "balance"; rows: { name: string; mask: string; balance: number }[] }
   | { type: "spend"; total: number; rows: { label: string; value: number }[] }
@@ -11,26 +9,7 @@ export type Card =
 
 export interface Msg { id: string; role: "user" | "bot"; text: string; card?: Card; time: string; }
 
-const t = {
-  en: {
-    hello: "Hello! I am the NIVORA assistant. I can check balances, summarise spending, send money, block a card or explain loans.",
-    balance: "Here are your current balances:",
-    spend: "Here is where your money went this month:",
-    fallback: "I can help with balances, spending, transfers, card services and loans. Try one of the suggestions below.",
-  },
-  hi: {
-    hello: "नमस्ते! मैं निवोरा सहायक हूँ। मैं बैलेंस, खर्च, ट्रांसफर और कार्ड सेवाओं में आपकी मदद कर सकता हूँ।",
-    balance: "आपके खातों का बैलेंस यह है:",
-    spend: "इस महीने का आपका खर्च ये रहा:",
-    fallback: "मैं अभी बैलेंस, खर्च, ट्रांसफर, कार्ड और लोन की जानकारी में मदद कर सकता हूँ।",
-  },
-  ta: {
-    hello: "வணக்கம்! நான் நிவோரா உதவியாளர். இருப்பு, செலவுகள், பணப் பரிமாற்றம், கார்டு சேவைகளில் உதவ முடியும்.",
-    balance: "உங்கள் கணக்குகளின் இருப்பு இதோ:",
-    spend: "இந்த மாதத்தின் செலவுகள் இதோ:",
-    fallback: "தற்போது இருப்பு, செலவு, பணப் பரிமாற்றம், கார்டு மற்றும் கடன் தகவல்களில் உதவ முடியும்.",
-  },
-};
+const hello = "Hello! I am the NIVORA assistant. I can check balances, send money to a UPI ID or mobile number, block a card, and help with banking questions like resetting a PIN or enabling international use. What do you need?";
 
 export const quickPrompts = [
   "What is my balance?",
@@ -38,6 +17,8 @@ export const quickPrompts = [
   "Send ₹500 to Ravi",
   "Block my debit card",
   "Am I eligible for a loan?",
+  "I forgot my card PIN",
+  "How do I enable international transactions?",
 ];
 
 let n = 0;
@@ -48,8 +29,11 @@ export const botMsg = (text: string) => mk("bot", text);
 
 interface ChatReply { reply: string; needs_confirmation: { to: string; amount: number } | null; }
 
-export async function askAssistant(message: string, lang: Lang): Promise<Msg> {
-  const r = await api<ChatReply>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ message, language: lang }) });
+export interface Turn { role: "user" | "assistant"; content: string }
+
+/** history = the earlier messages of this chat, so the assistant remembers what you were talking about */
+export async function askAssistant(message: string, history: Turn[] = []): Promise<Msg> {
+  const r = await api<ChatReply>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ message, language: "en", history }) });
   const c = r.needs_confirmation;
   return mk("bot", r.reply, c ? {
     type: "confirm", kind: "transfer", status: "pending",
@@ -64,4 +48,4 @@ export const confirmTransfer = (pin: string) =>
 export const cancelTransfer = () =>
   api<{ reply: string }>("/api/assistant/cancel", { method: "POST" });
 
-export const greeting = (lang: Lang) => mk("bot", t[lang].hello);
+export const greeting = () => mk("bot", hello);

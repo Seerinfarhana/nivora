@@ -1,5 +1,16 @@
-venv/
-__pycache__/
-*.pyc
+# Environment
 .env
-nivora.db
+.env.*
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log

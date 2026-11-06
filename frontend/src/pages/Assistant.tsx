@@ -3,11 +3,11 @@ import { useLocation, Link } from "react-router-dom";
 import gsap from "gsap";
 import { Mic, Send, Volume2, VolumeX, ShieldCheck, Sparkles, Check, X } from "lucide-react";
 import { usePageEnter } from "../lib/usePageEnter";
-import { Card, Lang, Msg, askAssistant, botMsg, cancelTransfer, confirmTransfer, greeting, quickPrompts, userMsg } from "../lib/assistant";
+import { Card, Msg, askAssistant, botMsg, cancelTransfer, confirmTransfer, greeting, quickPrompts, userMsg } from "../lib/assistant";
 import { inr, cn } from "../lib/utils";
 import { Button, PageHeader } from "../components/ui";
 
-const speechLang: Record<Lang, string> = { en: "en-IN", hi: "hi-IN", ta: "ta-IN" };
+const speechLang = "en-IN";
 
 function CardView({ card, onResolve }: { card: Card; onResolve: (status: "done" | "cancelled", pin?: string) => void }) {
   const [pin, setPin] = useState("");
@@ -44,8 +44,7 @@ function CardView({ card, onResolve }: { card: Card; onResolve: (status: "done" 
 export default function Assistant() {
   const ref = usePageEnter();
   const { state } = useLocation() as { state?: { prompt?: string } };
-  const [lang, setLang] = useState<Lang>("en");
-  const [msgs, setMsgs] = useState<Msg[]>(() => [greeting("en")]);
+  const [msgs, setMsgs] = useState<Msg[]>(() => [greeting()]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
   const [listening, setListening] = useState(false);
@@ -62,13 +61,16 @@ export default function Assistant() {
 
   const say = (m: Msg) => {
     setMsgs(p => [...p, m]);
-    if (speak && "speechSynthesis" in window) { const u = new SpeechSynthesisUtterance(m.text); u.lang = speechLang[lang]; window.speechSynthesis.speak(u); }
+    if (speak && "speechSynthesis" in window) { const u = new SpeechSynthesisUtterance(m.text); u.lang = speechLang; window.speechSynthesis.speak(u); }
   };
 
   const send = async (raw: string) => {
     const q = raw.trim(); if (!q) return;
     setMsgs(p => [...p, userMsg(q)]); setText(""); setTyping(true);
-    try { say(await askAssistant(q, lang)); }
+    try {
+      const history = msgs.slice(-10).map(m => ({ role: m.role === "user" ? "user" as const : "assistant" as const, content: m.text }));
+      say(await askAssistant(q, history));
+    }
     catch (e) { say(botMsg(e instanceof Error ? e.message : "I could not reach the server. Please try again.")); }
     finally { setTyping(false); }
   };
@@ -95,7 +97,7 @@ export default function Assistant() {
   const listen = () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return alert("Voice input needs Chrome or Edge. You can still type your question.");
-    const r = new SR(); r.lang = speechLang[lang];
+    const r = new SR(); r.lang = speechLang;
     r.onstart = () => setListening(true); r.onend = () => setListening(false); r.onerror = () => setListening(false);
     r.onresult = (e: any) => send(e.results[0][0].transcript);
     r.start();
@@ -109,9 +111,6 @@ export default function Assistant() {
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50 text-brand-600"><Sparkles className="h-4 w-4" /></span><div><p className="text-sm font-semibold">NIVORA assistant</p><p className="text-xs text-mint-ink">Online</p></div></div>
             <div className="flex items-center gap-2">
-              <select aria-label="Language" className="field w-auto py-1.5 text-sm" value={lang} onChange={e => { const l = e.target.value as Lang; setLang(l); setMsgs([greeting(l)]); }}>
-                <option value="en">English</option><option value="hi">हिन्दी</option><option value="ta">தமிழ்</option>
-              </select>
               <button aria-label={speak ? "Turn off spoken replies" : "Turn on spoken replies"} onClick={() => setSpeak(s => !s)} className="grid h-9 w-9 place-items-center rounded-lg border border-line text-muted hover:text-ink">{speak ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}</button>
             </div>
           </div>
@@ -120,7 +119,7 @@ export default function Assistant() {
             {msgs.map(m => (
               <div key={m.id} className={cn("flex", m.role === "user" && "justify-end")}>
                 <div className={cn("max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed", m.role === "user" ? "rounded-br-md bg-brand-500 text-white" : "rounded-bl-md border border-line bg-white")}>
-                  <p>{m.text}</p>
+                  <p className="whitespace-pre-wrap break-words">{m.text}</p>
                   {m.card && <CardView card={m.card} onResolve={(s, pin) => resolve(m.id, s, pin)} />}
                   <p className={cn("mt-1.5 text-[11px]", m.role === "user" ? "text-white/70" : "text-muted")}>{m.time}</p>
                 </div>
@@ -135,7 +134,7 @@ export default function Assistant() {
             </div>
             <form onSubmit={e => { e.preventDefault(); send(text); }} className="flex gap-2">
               <button type="button" onClick={listen} aria-label="Speak your question" className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line", listening ? "bg-rose text-rose-ink animate-pulse" : "bg-white text-brand-600 hover:bg-brand-50")}><Mic className="h-5 w-5" /></button>
-              <input className="field" value={text} onChange={e => setText(e.target.value)} placeholder={listening ? "Listening..." : "Ask about balance, spending, transfers..."} aria-label="Message" />
+              <input className="field" value={text} onChange={e => setText(e.target.value)} placeholder={listening ? "Listening..." : "Ask anything, or say \"send 500 to 98xxxxxx10\""} aria-label="Message" />
               <Button type="submit" className="px-4" aria-label="Send"><Send className="h-4 w-4" /></Button>
             </form>
           </div>

@@ -1,12 +1,11 @@
-
-# Environment variables
+# Environment files
 .env
 .env.*
 !.env.example
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 venv/
 .venv/
 
@@ -14,12 +13,13 @@ venv/
 node_modules/
 dist/
 
+# Database
+*.db
+*.sqlite3
+
 # IDE
 .vscode/
 .idea/
-
-# Logs
-*.log
 
 # OS
 .DS_Store
